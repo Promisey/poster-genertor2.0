@@ -416,10 +416,9 @@ function App() {
       if (newProducts.length === 0) {
         throw new Error('未导入到有效的商品数据');
       }
-      // 不自动填充长度，不补默认值，只渲染实际导入数据
+      // 导入成功后不清空文本框，方便微调
       setProducts(newProducts);
       setShowImport(false);
-      setCsvData('');
     } catch (error) {
       setImportError(error.message);
     }
