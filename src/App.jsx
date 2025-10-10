@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import * as XLSX from 'xlsx'
 import { Button } from './components/ui/button'
 import { Input } from './components/ui/input'
 import { Label } from './components/ui/label'
@@ -32,6 +33,7 @@ function App() {
   
   const canvasRef = useRef(null)
   const fileInputRef = useRef(null)
+  const excelFileInputRef = useRef(null)
   const headerImageInputRef = useRef(null)
   const qrCodeInputRef = useRef(null)
 
@@ -359,6 +361,36 @@ function App() {
       secondaryColor: style.secondaryColor
     }))
   }
+
+  // 文件导入处理
+  const handleFileImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = new Uint8Array(event.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        if (json.length < 2) {
+          throw new Error('Excel文件格式错误，至少需要标题行和一行数据');
+        }
+
+        // 将解析的数据转换为制表符分隔的字符串
+        const csvString = json.map(row => row.join('\t')).join('\n');
+        setCsvData(csvString); // 填充到文本框
+        setShowImport(true); // 显示文本框以便用户确认
+        setImportError('');
+      } catch (error) {
+        setImportError(`文件解析失败: ${error.message}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   // CSV导入处理
   const handleImportCSV = () => {
@@ -1128,23 +1160,37 @@ function App() {
                       size="sm"
                       onClick={() => setShowImport(!showImport)}
                     >
-                      批量导入
+                      粘贴导入
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => excelFileInputRef.current?.click()}
+                    >
+                      从Excel导入
+                    </Button>
+                    <input
+                      ref={excelFileInputRef}
+                      type="file"
+                      accept=".xlsx, .xls"
+                      onChange={handleFileImport}
+                      className="hidden"
+                    />
                   </div>
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {showImport && (
                   <div className="mb-6 p-4 border rounded-lg bg-gray-50">
-                    <Label htmlFor="csvData">CSV数据导入</Label>
+                    <Label htmlFor="csvData">数据预览与编辑</Label>
                     <p className="text-sm text-gray-600 mb-2">
-                      请按以下格式输入CSV数据：商品标题,商品规格,生产日期,划线价,促销价,商品图片链接
+                      请按以下格式输入数据（使用Tab分隔）：商品标题	规格	生产日期	划线价	促销价	商品图片链接
                     </p>
                     <textarea
                       id="csvData"
                       value={csvData}
                       onChange={(e) => setCsvData(e.target.value)}
-                      placeholder="商品标题,商品规格,生产日期,划线价,促销价,商品图片链接\n优质苹果,500g/袋,2024-07-15,29.90,19.90,https://example.com/apple.jpg"
+                      placeholder="商品标题	规格	生产日期	划线价	促销价	商品图片链接\n优质苹果	500g/袋	2024-07-15	29.90	19.90	https://example.com/apple.jpg"
                       className="w-full h-32 p-2 border rounded resize-none"
                     />
                     {importError && (
