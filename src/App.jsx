@@ -362,78 +362,66 @@ function App() {
 
   // CSV导入处理
   const handleImportCSV = () => {
-    console.log("[handleImportCSV] 开始导入CSV数据");
+    setImportError('');
     try {
-      setImportError('')
-      const lines = csvData.trim().split('\\n').filter(line => line.trim())
-      
+      // 兼容不同操作系统的换行符
+      const lines = csvData.trim().split(/\r?\n/).filter(line => line.trim());
       if (lines.length < 2) {
         throw new Error('CSV数据格式错误，至少需要标题行和一行数据')
       }
+      // 字段名称的兼容和容错映射
+      const rawHeaders = lines[0].split('\t').map(h => h.trim());
+      // 支持模糊匹配
+      const titleKeys = ['商品标题', '商品名称'];
+      const specKeys = ['商品规格', '规格'];
+      const dateKeys = ['生产日期', '日期'];
+      const originalPriceKeys = ['划线价', '原价'];
+      const priceKeys = ['促销价', '现价', '价格'];
+      const imgKeys = ['商品图片链接', '图片链接', '图片'];
 
-      const headers = lines[0].split(',').map(h => h.trim())
-      const expectedHeaders = ['商品标题', '商品规格', '生产日期', '划线价', '促销价', '商品图片链接']
-      
-      if (!expectedHeaders.every(h => headers.includes(h))) {
-        throw new Error(`CSV标题行格式错误，应包含：${expectedHeaders.join(', ')}`)
+      function matchKey(options) {
+        return options.find(key => rawHeaders.includes(key));
       }
 
-      const newProducts = []
-      for (let i = 1; i < lines.length && newProducts.length < templates[selectedTemplate].maxProducts; i++) {
-        const values = lines[i].split(',').map(v => v.trim())
-        if (values.length >= 5) {
-          const product = {
-            id: i,
-            title: values[headers.indexOf('商品标题')] || `商品${i}`,
-            spec: values[headers.indexOf('商品规格')] || '规格信息',
-            productionDate: values[headers.indexOf('生产日期')] || '',
-            originalPrice: values[headers.indexOf('划线价')] || '0.00',
-            price: values[headers.indexOf('促销价')] || '0.00',
-            image: null
-          }
-
-          // 处理图片链接
-          const imageUrlIndex = headers.indexOf('商品图片链接')
-          if (imageUrlIndex !== -1 && values[imageUrlIndex]) {
-            const imageUrl = values[imageUrlIndex]
-            if (imageUrl.startsWith('http')) {
-              product.image = imageUrl
-            }
-          }
-
-          newProducts.push(product)
-        }
+      const getIdx = (options) => {
+        const m = matchKey(options);
+        return m ? rawHeaders.indexOf(m) : -1;
       }
 
-      // 根据当前模板的最大商品数调整导入的产品列表
-      const maxProducts = templates[selectedTemplate].maxProducts;
-      let finalProducts = newProducts.slice(0, maxProducts);
+      const titleIdx = getIdx(titleKeys);
+      const specIdx = getIdx(specKeys);
+      const dateIdx = getIdx(dateKeys);
+      const originalPriceIdx = getIdx(originalPriceKeys);
+      const priceIdx = getIdx(priceKeys);
+      const imgIdx = getIdx(imgKeys);
+      if (titleIdx === -1 || priceIdx === -1 || specIdx === -1) {
+        throw new Error('CSV格式错误，缺少关键字段（商品名称/促销价/规格）');
+      }
 
-      // 确保finalProducts的长度与maxProducts一致，不足则填充空商品
-      while (finalProducts.length < maxProducts) {
-        finalProducts.push({
-          id: finalProducts.length + 1,
-          title: `商品${finalProducts.length + 1}`,
-          spec: '规格信息',
-          productionDate: '2024-07-15',
-          originalPrice: '29.90',
-          price: '19.90',
-          image: null
+      const newProducts = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cells = lines[i].split('\t').map(v => v.trim());
+        if (!cells[titleIdx]) continue; // 跳过无标题
+        newProducts.push({
+          id: i,
+          title: cells[titleIdx],
+          spec: specIdx >= 0 ? (cells[specIdx] || '') : '',
+          productionDate: dateIdx >= 0 ? (cells[dateIdx] || '') : '',
+          originalPrice: originalPriceIdx >= 0 ? (cells[originalPriceIdx] || '') : '',
+          price: priceIdx >= 0 ? (cells[priceIdx] || '') : '',
+          image: imgIdx >= 0 ? (cells[imgIdx] || null) : null,
         });
       }
 
-      setProducts(finalProducts);
-      console.log(`[handleImportCSV] 导入CSV数据完成，products长度: ${finalProducts.length}`);
-      console.log("[handleImportCSV] 导入的产品数据:", finalProducts);
-
-      if (finalProducts.length > 0) {
-        setShowImport(false)
-        setCsvData('')
-      } else {
-        throw new Error('未能解析到有效的商品数据')
+      if (newProducts.length === 0) {
+        throw new Error('未导入到有效的商品数据');
       }
+      // 不自动填充长度，不补默认值，只渲染实际导入数据
+      setProducts(newProducts);
+      setShowImport(false);
+      setCsvData('');
     } catch (error) {
-      setImportError(error.message)
+      setImportError(error.message);
     }
   }
 
@@ -559,75 +547,54 @@ function App() {
 
   // 绘制商品区域 - 优化圆角和布局
   const drawProducts = async (ctx, layout, style) => {
-    console.log('[drawProducts] 开始绘制商品');
-    console.log('[drawProducts] 当前商品数据:', products);
-    const { posterWidth, posterPaddingX, posterPaddingY, productGapX, productGapY, cardInnerPadding, imageToInfoAreaGap, textLineSpacing, priceLineHeight, bottomPadding, borderRadius } = layoutParams
-    const { headerHeight, cardWidth, cardHeight, imageSize, fontSize, cols, rows, calculateInfoHeight } = layout
+    // 只渲染实际products内容，不填充默认商品
+    const { posterWidth, posterPaddingX, posterPaddingY, productGapX, productGapY, cardInnerPadding, imageToInfoAreaGap, textLineSpacing, priceLineHeight, bottomPadding, borderRadius } = layoutParams;
+    const { headerHeight, cardWidth, cardHeight, imageSize, fontSize, cols, rows, calculateInfoHeight } = layout;
+    const imagePadding = 3;
+    const productAreaStartY = headerHeight + posterPaddingY;
+    const productAreaStartX = posterPaddingX;
 
-    // 图片边缘距离设置
-    const imagePadding = 3 // 图片与卡片边缘的距离
+    // 渲染最多 products.length 个商品，不补默认值
+    for(let index=0; index<Math.min(products.length, cols*rows); index++) {
+      const product = products[index];
+      const row = Math.floor(index / cols);
+      const col = index % cols;
+      const cardX = productAreaStartX + col * (cardWidth + productGapX);
+      const cardY = productAreaStartY + row * (cardHeight + productGapY);
+      // 卡片背景及边框
+      ctx.fillStyle = '#FFFFFF';
+      drawRoundedRect(ctx, cardX, cardY, cardWidth, cardHeight, borderRadius);
+      ctx.fill();
+      ctx.strokeStyle = '#E5E7EB';
+      ctx.lineWidth = 1;
+      drawRoundedRect(ctx, cardX, cardY, cardWidth, cardHeight, borderRadius);
+      ctx.stroke();
 
-    // 计算商品展示区域的起始位置
-    const productAreaStartY = headerHeight + posterPaddingY
-    const productAreaStartX = posterPaddingX
-
-    const productPromises = products.slice(0, templates[selectedTemplate].maxProducts).map(async (product, index) => {
-      // 计算商品卡片位置
-      const row = Math.floor(index / cols)
-      const col = index % cols
-      
-      const cardX = productAreaStartX + col * (cardWidth + productGapX)
-      const cardY = productAreaStartY + row * (cardHeight + productGapY)
-
-      // 绘制商品卡片背景 (圆角)
-      ctx.fillStyle = '#FFFFFF'
-      drawRoundedRect(ctx, cardX, cardY, cardWidth, cardHeight, borderRadius)
-      ctx.fill()
-      
-      // 绘制商品卡片边框 (圆角)
-      ctx.strokeStyle = '#E5E7EB'
-      ctx.lineWidth = 1
-      drawRoundedRect(ctx, cardX, cardY, cardWidth, cardHeight, borderRadius)
-      ctx.stroke()
-
-      // 计算内容区域
-      const contentX = cardX + cardInnerPadding
-      const contentY = cardY + cardInnerPadding
-      const contentWidth = cardWidth - 2 * cardInnerPadding
-      const contentHeight = cardHeight - 2 * cardInnerPadding
-
-      // 绘制商品图片（正方形，居中显示，圆角）
-      const imageX = cardX + imagePadding
-      const imageY = cardY + imagePadding
-
-      // 裁剪图片为圆角
-      ctx.save()
-      drawRoundedRect(ctx, imageX, imageY, imageSize, imageSize, borderRadius)
-      ctx.clip()
+      // 商品图片
+      const imageX = cardX + imagePadding;
+      const imageY = cardY + imagePadding;
+      ctx.save();
+      drawRoundedRect(ctx, imageX, imageY, imageSize, imageSize, borderRadius);
+      ctx.clip();
 
       if (product.image) {
         try {
-          const img = await loadImageWithCache(product.image)
+          const img = await loadImageWithCache(product.image);
           if (img) {
-            ctx.drawImage(img, imageX, imageY, imageSize, imageSize)
+            ctx.drawImage(img, imageX, imageY, imageSize, imageSize);
           } else {
-            drawImagePlaceholder(ctx, imageX, imageY, imageSize, borderRadius)
+            drawImagePlaceholder(ctx, imageX, imageY, imageSize, borderRadius);
           }
         } catch (error) {
-          console.error('产品图片加载失败:', error)
-          drawImagePlaceholder(ctx, imageX, imageY, imageSize, borderRadius)
+          drawImagePlaceholder(ctx, imageX, imageY, imageSize, borderRadius);
         }
       } else {
-        drawImagePlaceholder(ctx, imageX, imageY, imageSize, borderRadius)
+        drawImagePlaceholder(ctx, imageX, imageY, imageSize, borderRadius);
       }
 
-      ctx.restore() // 恢复画布状态
-
-      // 绘制商品信息
-      drawProductInfo(ctx, product, cardX, cardY, cardWidth, cardHeight, imageY + imageSize, fontSize, calculateInfoHeight, style)
-    })
-
-    await Promise.all(productPromises)
+      ctx.restore();
+      drawProductInfo(ctx, product, cardX, cardY, cardWidth, cardHeight, imageY + imageSize, fontSize, calculateInfoHeight, style);
+    }
   }
 
   // 绘制商品信息的辅助函数 - 优化垂直居中和价格同行
@@ -636,24 +603,8 @@ function App() {
     const contentX = cardX + cardInnerPadding
     const contentWidth = cardWidth - 2 * cardInnerPadding
 
-    // 计算信息区域的可用高度
-    const infoAreaAvailableHeight = cardY + cardHeight - cardInnerPadding - imageBottomY - layoutParams.bottomPadding
-    const actualInfoHeight = calculateInfoHeight(product)
-
-    // 计算信息区域的起始Y坐标，使其垂直居中
-    let textStartY = imageBottomY + layoutParams.imageToInfoAreaGap + (infoAreaAvailableHeight - actualInfoHeight) / 2
-
-    // 商品标题
-    ctx.fillStyle = '#1F2937'
-    ctx.font = `bold ${fontSize.title}px Arial, sans-serif`
-    ctx.textAlign = 'center'
-    const titleText = product.title;
-    const maxTitleWidth = contentWidth;
-    const titleLineHeight = fontSize.title + textLineSpacing;
-    let currentTitleY = textStartY;
-
-    // 改进的文本换行函数，支持中英文混合文本的智能换行
-    const wrapText = (context, text, x, y, maxWidth, lineHeight, maxLines) => {
+    // 改进的文本换行函数，支持计算高度而不绘制
+    const wrapText = (context, text, x, y, maxWidth, lineHeight, maxLines, shouldDraw = true) => {
       if (!text || text.trim() === '') return 0;
       
       const words = text.split('');
@@ -676,84 +627,126 @@ function App() {
         lines.push(currentLine);
       }
       
-      // 绘制文本行
-      for (let i = 0; i < Math.min(lines.length, maxLines); i++) {
-        let textToDraw = lines[i];
-        if (i === maxLines - 1 && lines.length > maxLines) {
-          // 如果是最后一行且还有更多内容，则添加省略号
-          let ellipsis = '...';
-          let ellipsisWidth = context.measureText(ellipsis).width;
-          let availableWidth = maxWidth - ellipsisWidth;
-          while (context.measureText(textToDraw).width > availableWidth && textToDraw.length > 0) {
-            textToDraw = textToDraw.slice(0, -1);
+      if (shouldDraw) {
+        for (let i = 0; i < Math.min(lines.length, maxLines); i++) {
+          let textToDraw = lines[i];
+          if (i === maxLines - 1 && lines.length > maxLines) {
+            let ellipsis = '...';
+            let ellipsisWidth = context.measureText(ellipsis).width;
+            let availableWidth = maxWidth - ellipsisWidth;
+            while (context.measureText(textToDraw).width > availableWidth && textToDraw.length > 0) {
+              textToDraw = textToDraw.slice(0, -1);
+            }
+            textToDraw += ellipsis;
           }
-          textToDraw += ellipsis;
+          context.fillText(textToDraw, x, y + i * lineHeight);
         }
-        context.fillText(textToDraw, x, y + i * lineHeight);
       }
       return Math.min(lines.length, maxLines) * lineHeight;
     };
 
-    const maxTitleLines = 2; // 标题允许两行以更好处理长文本
-    const drawnTitleHeight = wrapText(ctx, titleText, contentX + contentWidth / 2, currentTitleY, maxTitleWidth, titleLineHeight, maxTitleLines);
-    textStartY = currentTitleY + drawnTitleHeight;
+    // 1. 动态计算实际内容高度
+    let actualInfoHeight = 0;
+    const maxTitleLines = 2;
+    const maxSpecLines = 1;
+    const maxDateLines = 1;
 
-    // 商品规格
-    ctx.fillStyle = '#6B7280'
-    ctx.font = `${fontSize.spec}px Arial, sans-serif`
-    ctx.textAlign = 'center'
-    const specText = product.spec;
-    const maxSpecWidth = contentWidth;
-    const specLineHeight = fontSize.spec + textLineSpacing;
-    const maxSpecLines = 1; // 规格只允许一行
-    const drawnSpecHeight = wrapText(ctx, specText, contentX + contentWidth / 2, textStartY, maxSpecWidth, specLineHeight, maxSpecLines);
-    textStartY += drawnSpecHeight;
+    ctx.font = `bold ${fontSize.title}px Arial, sans-serif`;
+    const titleLineHeight = fontSize.title + textLineSpacing;
+    actualInfoHeight += wrapText(ctx, product.title, 0, 0, contentWidth, titleLineHeight, maxTitleLines, false);
 
-    // 生产日期
+    if (product.spec && product.spec.trim() !== '') {
+      ctx.font = `${fontSize.spec}px Arial, sans-serif`;
+      const specLineHeight = fontSize.spec + textLineSpacing;
+      actualInfoHeight += wrapText(ctx, product.spec, 0, 0, contentWidth, specLineHeight, maxSpecLines, false);
+    }
+
+    if (product.productionDate && product.productionDate.trim() !== '') {
+      ctx.font = `${fontSize.date}px Arial, sans-serif`;
+      const dateLineHeight = fontSize.date + textLineSpacing;
+      actualInfoHeight += wrapText(ctx, `生产日期: ${product.productionDate}`, 0, 0, contentWidth, dateLineHeight, maxDateLines, false);
+    }
+
+    actualInfoHeight += priceLineHeight;
+
+    // 2. 根据实际高度计算起始Y坐标，实现垂直居中
+    const infoAreaAvailableHeight = cardY + cardHeight - cardInnerPadding - imageBottomY - layoutParams.bottomPadding;
+    let textStartY = imageBottomY + layoutParams.imageToInfoAreaGap + (infoAreaAvailableHeight - actualInfoHeight) / 2;
+
+    // 3. 依次绘制真实存在的内容
+    // 商品标题
+    ctx.fillStyle = '#1F2937';
+    ctx.font = `bold ${fontSize.title}px Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    const drawnTitleHeight = wrapText(ctx, product.title, contentX + contentWidth / 2, textStartY, contentWidth, titleLineHeight, maxTitleLines, true);
+    textStartY += drawnTitleHeight;
+
+    // 商品规格 (如果存在)
+    if (product.spec && product.spec.trim() !== '') {
+      ctx.fillStyle = '#6B7280';
+      ctx.font = `${fontSize.spec}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      const specLineHeight = fontSize.spec + textLineSpacing;
+      const drawnSpecHeight = wrapText(ctx, product.spec, contentX + contentWidth / 2, textStartY, contentWidth, specLineHeight, maxSpecLines, true);
+      textStartY += drawnSpecHeight;
+    }
+
+    // 生产日期 (如果存在)
     if (product.productionDate && product.productionDate.trim() !== '') {
       ctx.fillStyle = '#9CA3AF';
       ctx.font = `${fontSize.date}px Arial, sans-serif`;
       ctx.textAlign = 'center';
-      const dateText = `生产日期: ${product.productionDate}`;
-      const maxDateWidth = contentWidth;
       const dateLineHeight = fontSize.date + textLineSpacing;
-      const maxDateLines = 1; // 生产日期只允许一行
-      const drawnDateHeight = wrapText(ctx, dateText, contentX + contentWidth / 2, textStartY, maxDateWidth, dateLineHeight, maxDateLines);
+      const drawnDateHeight = wrapText(ctx, `生产日期: ${product.productionDate}`, contentX + contentWidth / 2, textStartY, contentWidth, dateLineHeight, maxDateLines, true);
       textStartY += drawnDateHeight;
     }
 
-    // 价格信息 (划线价和促销价同行)
-    ctx.textAlign = 'left'; // 价格左对齐
-    const priceAreaStartX = contentX;
+    // 价格信息
+    const priceAreaY = textStartY + priceLineHeight / 2;
+    const originalPriceText = `¥${product.originalPrice}`;
+    const priceText = `¥${product.price}`;
+    const priceGap = 5;
 
-    // 划线价
+    let totalWidth = 0;
+    let originalPriceWidth = 0;
     if (product.originalPrice && parseFloat(product.originalPrice) > 0) {
+      ctx.font = `${fontSize.originalPrice}px Arial, sans-serif`;
+      originalPriceWidth = ctx.measureText(originalPriceText).width;
+      totalWidth += originalPriceWidth;
+    }
+
+    ctx.font = `bold ${fontSize.price}px Arial, sans-serif`;
+    const priceWidth = ctx.measureText(priceText).width;
+    totalWidth += priceWidth;
+
+    if (originalPriceWidth > 0) {
+      totalWidth += priceGap;
+    }
+
+    let currentX = contentX + (contentWidth - totalWidth) / 2;
+
+    if (product.originalPrice && parseFloat(product.originalPrice) > 0) {
+      ctx.textAlign = 'left';
       ctx.fillStyle = '#9CA3AF';
       ctx.font = `${fontSize.originalPrice}px Arial, sans-serif`;
-      const originalPriceText = `¥${product.originalPrice}`;
-      const originalPriceWidth = ctx.measureText(originalPriceText).width;
-      ctx.fillText(originalPriceText, priceAreaStartX, textStartY + priceLineHeight / 2);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(originalPriceText, currentX, priceAreaY);
 
-      // 绘制划线
       ctx.beginPath();
       ctx.strokeStyle = '#9CA3AF';
       ctx.lineWidth = 1;
-      ctx.moveTo(priceAreaStartX, textStartY + priceLineHeight / 2 - fontSize.originalPrice / 4);
-      ctx.lineTo(priceAreaStartX + originalPriceWidth, textStartY + priceLineHeight / 2 - fontSize.originalPrice / 4);
+      ctx.moveTo(currentX, priceAreaY);
+      ctx.lineTo(currentX + originalPriceWidth, priceAreaY);
       ctx.stroke();
 
-      // 促销价紧随其后
-      ctx.fillStyle = style.primaryColor; // 使用主色调
-      ctx.font = `bold ${fontSize.price}px Arial, sans-serif`;
-      const priceText = `¥${product.price}`;
-      ctx.fillText(priceText, priceAreaStartX + originalPriceWidth + 5, textStartY + priceLineHeight / 2);
-    } else {
-      // 如果没有划线价，促销价直接显示
-      ctx.fillStyle = style.primaryColor; // 使用主色调
-      ctx.font = `bold ${fontSize.price}px Arial, sans-serif`;
-      const priceText = `¥${product.price}`;
-      ctx.fillText(priceText, priceAreaStartX, textStartY + priceLineHeight / 2);
+      currentX += originalPriceWidth + priceGap;
     }
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = style.primaryColor;
+    ctx.font = `bold ${fontSize.price}px Arial, sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(priceText, currentX, priceAreaY);
   }
 
   // 绘制图片占位符 (圆角)

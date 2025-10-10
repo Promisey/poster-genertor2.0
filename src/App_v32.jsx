@@ -183,7 +183,54 @@ function App() {
   }
 
   // 处理图片上传
-  const handleImageUpload = (productId, file) => {
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const csv = event.target.result;
+        const lines = csv.split('\n').filter(line => line.trim() !== ''); // 移除空行
+        if (lines.length < 2) {
+          alert('CSV文件为空或格式不正确，需要包含表头和至少一行数据。');
+          return;
+        }
+        
+        const firstProductLine = lines[1];
+        const values = firstProductLine.split(',');
+
+        if (values.length < 5) { // name, spec, productionDate, originalPrice, price
+          alert('CSV文件中的数据列数不足。');
+          return;
+        }
+
+        const [name, spec, productionDate, originalPrice, price, imageUrl] = values;
+        
+        setProductInfo({
+          name: name || '优质苹果',
+          spec: spec || '500g/袋',
+          productionDate: productionDate || new Date().toISOString().slice(0, 10),
+          originalPrice: originalPrice || '29.90',
+          price: price || '19.90',
+          imageUrl: imageUrl || defaultImage,
+        });
+        alert('商品信息导入成功！');
+      } catch (error) {
+        console.error("导入失败:", error);
+        alert('文件处理失败，请检查文件格式是否正确。');
+      }
+    };
+    reader.onerror = () => {
+      alert('读取文件失败。');
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0]
     if (file) {
       const reader = new FileReader()
       reader.onload = (e) => {
