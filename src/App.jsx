@@ -295,6 +295,7 @@ function App() {
 
       // 加载新图片
       const img = new Image()
+      img.crossOrigin = 'Anonymous' // 核心修复：启用CORS跨域图片请求
       img.onload = () => {
         // 添加到缓存
         setImageCache(prev => new Map(prev.set(src, img)))
