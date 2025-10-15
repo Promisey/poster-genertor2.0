@@ -41,7 +41,7 @@ function App() {
     secondaryColor: '#60A5FA'
   })
   const [products, setProducts] = useState([
-    { id: 1, title: '优质苹果', spec: '500g/袋', productionDate: '2024-07-15', originalPrice: '29.90', price: '19.90', image: null }
+    { id: 1, title: '优质苹果', spec: '500g/袋', productionDate: '2024-07-15', originalPrice: '29.90', price: '19.90', promotionTag: '直降', image: null }
   ])
   const [showImport, setShowImport] = useState(false)
   const [csvData, setCsvData] = useState('')
@@ -131,12 +131,14 @@ function App() {
     cardPadding: 8, // 商品卡片外边距
     cardInnerPadding: 10, // 增大商品卡片内边距（从8增加到10）
     imageToInfoAreaGap: 15, // 增大图片与信息区域的间距（从10增加到15）
-    textLineSpacing: 5, // 增大文字行间距（从4增加到5）
-    priceLineHeight: 20, // 增大价格行高（从18增加到20）
+    textLineSpacing: 6, // 增大文字行间距进一步提升可读性
+    priceLineHeight: 28, // 增大价格行高以适配更大的字体
     bottomPadding: 10, // 增大底部内边距（从8增加到10）
     borderRadius: 10, // 增大圆角半径（从8增加到10）
     qrCodeSize: 120 // 新增：二维码尺寸（从60增加到120）
   }
+
+  const FONT_FAMILY = '"PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif'
 
   // 绘制圆角矩形函数
   const drawRoundedRect = (ctx, x, y, width, height, radius) => {
@@ -184,11 +186,11 @@ function App() {
 
     // 动态字体大小计算
     const fontSize = {
-      title: Math.max(10, Math.min(14, cardWidth / 20)),
-      spec: Math.max(8, Math.min(12, cardWidth / 24)),
-      date: Math.max(8, Math.min(10, cardWidth / 26)),
-      originalPrice: Math.max(8, Math.min(11, cardWidth / 24)),
-      price: Math.max(12, Math.min(16, cardWidth / 18))
+      title: Math.max(14, Math.min(22, cardWidth / 14)),
+      spec: Math.max(11, Math.min(16, cardWidth / 18)),
+      date: Math.max(10, Math.min(14, cardWidth / 20)),
+      originalPrice: Math.max(11, Math.min(15, cardWidth / 18)),
+      price: Math.max(16, Math.min(24, cardWidth / 12))
     }
 
     // 计算商品信息区域高度
@@ -197,7 +199,7 @@ function App() {
       infoHeight += 2 * (fontSize.title + textLineSpacing)    // 商品名称（允许两行）
       infoHeight += fontSize.spec + textLineSpacing     // 商品规格
       if (product && product.productionDate && product.productionDate.trim() !== '') {
-        infoHeight += fontSize.date + textLineSpacing   // 生产日期（按需）
+        infoHeight += fontSize.date + textLineSpacing   // 日期（按需）
       }
       infoHeight += priceLineHeight                     // 价格行高 (划线价和促销价同行)
       return infoHeight
@@ -350,6 +352,7 @@ function App() {
           productionDate: '2024-07-15',
           originalPrice: '29.90',
           price: '19.90',
+          promotionTag: '直降',
           image: null
         });
       }
@@ -364,6 +367,7 @@ function App() {
     updatedProducts = updatedProducts.map((product, index) => ({
       ...product,
       id: index + 1, // 重新分配ID以确保连续性
+      promotionTag: product.promotionTag ?? '直降'
     }));
 
     setProducts(updatedProducts);
@@ -379,6 +383,62 @@ function App() {
       primaryColor: style.primaryColor,
       secondaryColor: style.secondaryColor
     }))
+  }
+
+  const parseProductsFromTSV = (raw) => {
+    const lines = raw.trim().split(/\r?\n/).filter(line => line.trim())
+    if (lines.length < 2) {
+      throw new Error('CSV数据格式错误，至少需要标题行和一行数据')
+    }
+
+    const rawHeaders = lines[0].split('\t').map(h => h.trim())
+    const titleKeys = ['商品标题', '商品名称']
+    const specKeys = ['商品规格', '规格']
+    const dateKeys = ['日期', '生产日期']
+    const originalPriceKeys = ['划线价', '原价']
+    const priceKeys = ['促销价', '现价', '价格']
+    const imgKeys = ['商品图片链接', '图片链接', '图片']
+    const promotionKeys = ['促销标签', '促销文案', '促销标语', '促销标签文案', '标签']
+
+    const matchKey = (options) => options.find(key => rawHeaders.includes(key))
+    const getIdx = (options) => {
+      const matched = matchKey(options)
+      return matched ? rawHeaders.indexOf(matched) : -1
+    }
+
+    const titleIdx = getIdx(titleKeys)
+    const specIdx = getIdx(specKeys)
+    const dateIdx = getIdx(dateKeys)
+    const originalPriceIdx = getIdx(originalPriceKeys)
+    const priceIdx = getIdx(priceKeys)
+    const imgIdx = getIdx(imgKeys)
+    const promotionIdx = getIdx(promotionKeys)
+
+    if (titleIdx === -1 || priceIdx === -1 || specIdx === -1) {
+      throw new Error('CSV格式错误，缺少关键字段（商品名称/促销价/规格）')
+    }
+
+    const newProducts = []
+    for (let i = 1; i < lines.length; i++) {
+      const cells = lines[i].split('\t').map(v => v.trim())
+      if (!cells[titleIdx]) continue
+      newProducts.push({
+        id: i,
+        title: cells[titleIdx],
+        spec: specIdx >= 0 ? (cells[specIdx] || '') : '',
+        productionDate: dateIdx >= 0 ? (cells[dateIdx] || '') : '',
+        originalPrice: originalPriceIdx >= 0 ? (cells[originalPriceIdx] || '') : '',
+        price: priceIdx >= 0 ? (cells[priceIdx] || '') : '',
+        promotionTag: promotionIdx >= 0 ? (cells[promotionIdx] || '').trim() : '',
+        image: imgIdx >= 0 ? (cells[imgIdx] || null) : null
+      })
+    }
+
+    if (newProducts.length === 0) {
+      throw new Error('未导入到有效的商品数据')
+    }
+
+    return newProducts
   }
 
   // 文件导入处理
@@ -399,75 +459,32 @@ function App() {
           throw new Error('Excel文件格式错误，至少需要标题行和一行数据');
         }
 
-        // 将解析的数据转换为制表符分隔的字符串
         const csvString = json.map(row => row.join('\t')).join('\n');
-        setCsvData(csvString); // 填充到文本框
-        setShowImport(true); // 显示文本框以便用户确认
+        setCsvData(csvString);
         setImportError('');
+
+        try {
+          const parsedProducts = parseProductsFromTSV(csvString);
+          setProducts(parsedProducts);
+          setShowImport(false);
+        } catch (parseError) {
+          setImportError(parseError.message);
+          setShowImport(true);
+        }
       } catch (error) {
         setImportError(`文件解析失败: ${error.message}`);
+        setShowImport(true);
       }
     };
     reader.readAsArrayBuffer(file);
+    e.target.value = '';
   };
 
   // CSV导入处理
   const handleImportCSV = () => {
     setImportError('');
     try {
-      // 兼容不同操作系统的换行符
-      const lines = csvData.trim().split(/\r?\n/).filter(line => line.trim());
-      if (lines.length < 2) {
-        throw new Error('CSV数据格式错误，至少需要标题行和一行数据')
-      }
-      // 字段名称的兼容和容错映射
-      const rawHeaders = lines[0].split('\t').map(h => h.trim());
-      // 支持模糊匹配
-      const titleKeys = ['商品标题', '商品名称'];
-      const specKeys = ['商品规格', '规格'];
-      const dateKeys = ['生产日期', '日期'];
-      const originalPriceKeys = ['划线价', '原价'];
-      const priceKeys = ['促销价', '现价', '价格'];
-      const imgKeys = ['商品图片链接', '图片链接', '图片'];
-
-      function matchKey(options) {
-        return options.find(key => rawHeaders.includes(key));
-      }
-
-      const getIdx = (options) => {
-        const m = matchKey(options);
-        return m ? rawHeaders.indexOf(m) : -1;
-      }
-
-      const titleIdx = getIdx(titleKeys);
-      const specIdx = getIdx(specKeys);
-      const dateIdx = getIdx(dateKeys);
-      const originalPriceIdx = getIdx(originalPriceKeys);
-      const priceIdx = getIdx(priceKeys);
-      const imgIdx = getIdx(imgKeys);
-      if (titleIdx === -1 || priceIdx === -1 || specIdx === -1) {
-        throw new Error('CSV格式错误，缺少关键字段（商品名称/促销价/规格）');
-      }
-
-      const newProducts = [];
-      for (let i = 1; i < lines.length; i++) {
-        const cells = lines[i].split('\t').map(v => v.trim());
-        if (!cells[titleIdx]) continue; // 跳过无标题
-        newProducts.push({
-          id: i,
-          title: cells[titleIdx],
-          spec: specIdx >= 0 ? (cells[specIdx] || '') : '',
-          productionDate: dateIdx >= 0 ? (cells[dateIdx] || '') : '',
-          originalPrice: originalPriceIdx >= 0 ? (cells[originalPriceIdx] || '') : '',
-          price: priceIdx >= 0 ? (cells[priceIdx] || '') : '',
-          image: imgIdx >= 0 ? (cells[imgIdx] || null) : null,
-        });
-      }
-
-      if (newProducts.length === 0) {
-        throw new Error('未导入到有效的商品数据');
-      }
-      // 导入成功后不清空文本框，方便微调
+      const newProducts = parseProductsFromTSV(csvData);
       setProducts(newProducts);
       setShowImport(false);
     } catch (error) {
@@ -579,18 +596,18 @@ function App() {
   // 绘制店铺名称和标语的辅助函数 - 优化位置计算
   const drawStoreInfo = (ctx, style, startY, posterWidth, baseHeaderHeight) => {
     ctx.fillStyle = style.textColor
-    ctx.font = 'bold 26px Arial, sans-serif' // 增大字体
+    ctx.font = `bold 26px ${FONT_FAMILY}` // 增大字体
     ctx.textAlign = 'center'
     ctx.fillText(posterConfig.storeName, posterWidth / 2, startY + baseHeaderHeight * 0.4)
 
-    ctx.font = '16px Arial, sans-serif' // 增大字体
+    ctx.font = `16px ${FONT_FAMILY}` // 增大字体
     ctx.fillText(posterConfig.storeSlogan, posterWidth / 2, startY + baseHeaderHeight * 0.7)
   }
 
   // 绘制海报标题的辅助函数 - 优化位置计算
   const drawPosterTitle = (ctx, startY, posterWidth) => {
     ctx.fillStyle = '#1F2937'
-    ctx.font = 'bold 20px Arial, sans-serif' // 增大字体
+    ctx.font = `bold 20px ${FONT_FAMILY}` // 增大字体
     ctx.textAlign = 'center'
     ctx.fillText(posterConfig.posterTitle, posterWidth / 2, startY + 25)
   }
@@ -643,6 +660,7 @@ function App() {
       }
 
       ctx.restore();
+      drawPromotionBadge(ctx, product.promotionTag, imageX, imageY, imageSize);
       drawProductInfo(ctx, product, cardX, cardY, cardWidth, cardHeight, imageY + imageSize, fontSize, calculateInfoHeight, style);
     }
   }
@@ -700,21 +718,24 @@ function App() {
     const maxTitleLines = 2;
     const maxSpecLines = 1;
     const maxDateLines = 1;
+    const dateLineHeight = fontSize.date + textLineSpacing;
 
-    ctx.font = `bold ${fontSize.title}px Arial, sans-serif`;
+    ctx.font = `bold ${fontSize.title}px ${FONT_FAMILY}`;
     const titleLineHeight = fontSize.title + textLineSpacing;
     actualInfoHeight += wrapText(ctx, product.title, 0, 0, contentWidth, titleLineHeight, maxTitleLines, false);
 
     if (product.spec && product.spec.trim() !== '') {
-      ctx.font = `${fontSize.spec}px Arial, sans-serif`;
+      ctx.font = `${fontSize.spec}px ${FONT_FAMILY}`;
       const specLineHeight = fontSize.spec + textLineSpacing;
       actualInfoHeight += wrapText(ctx, product.spec, 0, 0, contentWidth, specLineHeight, maxSpecLines, false);
     }
 
-    if (product.productionDate && product.productionDate.trim() !== '') {
-      ctx.font = `${fontSize.date}px Arial, sans-serif`;
-      const dateLineHeight = fontSize.date + textLineSpacing;
-      actualInfoHeight += wrapText(ctx, `生产日期: ${product.productionDate}`, 0, 0, contentWidth, dateLineHeight, maxDateLines, false);
+    const hasDate = product.productionDate && product.productionDate.trim() !== '';
+    if (hasDate) {
+      ctx.font = `${fontSize.date}px ${FONT_FAMILY}`;
+      actualInfoHeight += wrapText(ctx, `日期: ${product.productionDate}`, 0, 0, contentWidth, dateLineHeight, maxDateLines, false);
+    } else {
+      actualInfoHeight += dateLineHeight;
     }
 
     actualInfoHeight += priceLineHeight;
@@ -726,7 +747,7 @@ function App() {
     // 3. 依次绘制真实存在的内容
     // 商品标题
     ctx.fillStyle = '#1F2937';
-    ctx.font = `bold ${fontSize.title}px Arial, sans-serif`;
+    ctx.font = `bold ${fontSize.title}px ${FONT_FAMILY}`;
     ctx.textAlign = 'center';
     const drawnTitleHeight = wrapText(ctx, product.title, contentX + contentWidth / 2, textStartY, contentWidth, titleLineHeight, maxTitleLines, true);
     textStartY += drawnTitleHeight;
@@ -734,38 +755,39 @@ function App() {
     // 商品规格 (如果存在)
     if (product.spec && product.spec.trim() !== '') {
       ctx.fillStyle = '#6B7280';
-      ctx.font = `${fontSize.spec}px Arial, sans-serif`;
+      ctx.font = `${fontSize.spec}px ${FONT_FAMILY}`;
       ctx.textAlign = 'center';
       const specLineHeight = fontSize.spec + textLineSpacing;
       const drawnSpecHeight = wrapText(ctx, product.spec, contentX + contentWidth / 2, textStartY, contentWidth, specLineHeight, maxSpecLines, true);
       textStartY += drawnSpecHeight;
     }
 
-    // 生产日期 (如果存在)
-    if (product.productionDate && product.productionDate.trim() !== '') {
+    // 日期 (如果存在)
+    if (hasDate) {
       ctx.fillStyle = '#9CA3AF';
-      ctx.font = `${fontSize.date}px Arial, sans-serif`;
+      ctx.font = `${fontSize.date}px ${FONT_FAMILY}`;
       ctx.textAlign = 'center';
-      const dateLineHeight = fontSize.date + textLineSpacing;
-      const drawnDateHeight = wrapText(ctx, `生产日期: ${product.productionDate}`, contentX + contentWidth / 2, textStartY, contentWidth, dateLineHeight, maxDateLines, true);
+      const drawnDateHeight = wrapText(ctx, `日期: ${product.productionDate}`, contentX + contentWidth / 2, textStartY, contentWidth, dateLineHeight, maxDateLines, true);
       textStartY += drawnDateHeight;
+    } else {
+      textStartY += dateLineHeight;
     }
 
     // 价格信息
     const priceAreaY = textStartY + priceLineHeight / 2;
     const originalPriceText = `¥${product.originalPrice}`;
     const priceText = `¥${product.price}`;
-    const priceGap = 5;
+    const priceGap = 8;
 
     let totalWidth = 0;
     let originalPriceWidth = 0;
     if (product.originalPrice && parseFloat(product.originalPrice) > 0) {
-      ctx.font = `${fontSize.originalPrice}px Arial, sans-serif`;
+      ctx.font = `${fontSize.originalPrice}px ${FONT_FAMILY}`;
       originalPriceWidth = ctx.measureText(originalPriceText).width;
       totalWidth += originalPriceWidth;
     }
 
-    ctx.font = `bold ${fontSize.price}px Arial, sans-serif`;
+    ctx.font = `bold ${fontSize.price}px ${FONT_FAMILY}`;
     const priceWidth = ctx.measureText(priceText).width;
     totalWidth += priceWidth;
 
@@ -778,7 +800,7 @@ function App() {
     if (product.originalPrice && parseFloat(product.originalPrice) > 0) {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#9CA3AF';
-      ctx.font = `${fontSize.originalPrice}px Arial, sans-serif`;
+      ctx.font = `${fontSize.originalPrice}px ${FONT_FAMILY}`;
       ctx.textBaseline = 'middle';
       ctx.fillText(originalPriceText, currentX, priceAreaY);
 
@@ -794,9 +816,59 @@ function App() {
 
     ctx.textAlign = 'left';
     ctx.fillStyle = style.primaryColor;
-    ctx.font = `bold ${fontSize.price}px Arial, sans-serif`;
+    ctx.font = `bold ${fontSize.price}px ${FONT_FAMILY}`;
     ctx.textBaseline = 'middle';
     ctx.fillText(priceText, currentX, priceAreaY);
+  }
+
+  // 绘制促销标签 - 左上角斜切三角形
+  const drawPromotionBadge = (ctx, rawText, imageX, imageY, imageSize) => {
+    const text = (rawText || '').trim()
+    if (!text) return
+
+    const badgeSize = Math.min(imageSize * 0.5, Math.max(32, imageSize * 0.36))
+    const displayText = text.length > 4 ? text.slice(0, 4) : text
+
+    ctx.save()
+
+    // 绘制三角形背景
+    ctx.beginPath()
+    ctx.moveTo(imageX, imageY)
+    ctx.lineTo(imageX + badgeSize, imageY)
+    ctx.lineTo(imageX, imageY + badgeSize)
+    ctx.closePath()
+
+    ctx.fillStyle = '#EF4444'
+    ctx.shadowColor = 'rgba(0,0,0,0.12)'
+    ctx.shadowBlur = 6
+    ctx.fill()
+
+    ctx.shadowBlur = 0
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+
+    // 绘制文字
+    const centerOffset = badgeSize * 0.28
+    const centerX = imageX + centerOffset
+    const centerY = imageY + centerOffset
+    ctx.translate(centerX, centerY)
+    ctx.rotate(-Math.PI / 4)
+
+    const maxWidth = badgeSize * 0.7
+    let badgeFontSize = Math.max(10, badgeSize * 0.3)
+    ctx.fillStyle = '#FFFFFF'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.font = `bold ${badgeFontSize}px ${FONT_FAMILY}`
+
+    while (ctx.measureText(displayText).width > maxWidth && badgeFontSize > 9) {
+      badgeFontSize -= 1
+      ctx.font = `bold ${badgeFontSize}px ${FONT_FAMILY}`
+    }
+
+    ctx.fillText(displayText, 0, 0)
+    ctx.restore()
   }
 
   // 绘制图片占位符 (圆角)
@@ -811,7 +883,7 @@ function App() {
     ctx.stroke()
     
     ctx.fillStyle = '#9CA3AF'
-    ctx.font = '10px Arial, sans-serif'
+    ctx.font = `10px ${FONT_FAMILY}`
     ctx.textAlign = 'center'
     ctx.fillText('商品图片', x + size / 2, y + size / 2 - 5)
     ctx.fillText('暂未上传', x + size / 2, y + size / 2 + 8)
@@ -868,7 +940,7 @@ function App() {
     // 绘制底部文字（在二维码下方，保持整体居中）
     console.log("drawFooter: 绘制底部文字，当前fillStyle =", ctx.fillStyle)
     ctx.fillStyle = '#FFFFFF' // 白色文字在深色背景上更清晰
-    ctx.font = '14px Arial, sans-serif'
+    ctx.font = `14px ${FONT_FAMILY}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'alphabetic'
     const textY = qrY + qrCodeSize + qrToTextGap
@@ -897,7 +969,7 @@ function App() {
     
     // 使用白色文字，在深色背景上清晰可见
     ctx.fillStyle = '#FFFFFF'
-    ctx.font = '16px Arial, sans-serif'
+    ctx.font = `16px ${FONT_FAMILY}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     console.log("drawQRPlaceholder: 占位符位置 qrX =", qrX, "qrY =", qrY, "size =", qrCodeSize)
@@ -1203,13 +1275,13 @@ function App() {
                   <div className="mb-6 p-4 border rounded-lg bg-gray-50">
                     <Label htmlFor="csvData">数据预览与编辑</Label>
                     <p className="text-sm text-gray-600 mb-2">
-                      请按以下格式输入数据（使用Tab分隔）：商品标题	规格	生产日期	划线价	促销价	商品图片链接
+                      请按以下格式输入数据（使用Tab分隔）：商品标题	规格	日期	划线价	促销价	促销标签	商品图片链接
                     </p>
                     <textarea
                       id="csvData"
                       value={csvData}
                       onChange={(e) => setCsvData(e.target.value)}
-                      placeholder="商品标题	规格	生产日期	划线价	促销价	商品图片链接\n优质苹果	500g/袋	2024-07-15	29.90	19.90	https://example.com/apple.jpg"
+                      placeholder="商品标题	规格	日期	划线价	促销价	促销标签	商品图片链接\n优质苹果	500g/袋	2024-07-15	29.90	19.90	爆款	https://example.com/apple.jpg"
                       className="w-full h-32 p-2 border rounded resize-none"
                     />
                     {importError && (
@@ -1260,7 +1332,7 @@ function App() {
                         </div>
 
                         <div>
-                          <Label htmlFor={`date-${index}`}>生产日期（可选）</Label>
+                          <Label htmlFor={`date-${index}`}>日期（可选）</Label>
                           <Input
                             id={`date-${index}`}
                             value={product.productionDate}
@@ -1286,6 +1358,16 @@ function App() {
                             value={product.price}
                             onChange={(e) => updateProduct(index, 'price', e.target.value)}
                             placeholder="0.00"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`promotionTag-${index}`}>促销标签</Label>
+                          <Input
+                            id={`promotionTag-${index}`}
+                            value={product.promotionTag || ''}
+                            onChange={(e) => updateProduct(index, 'promotionTag', e.target.value)}
+                            placeholder="例如：直降 / 爆款 / 新品"
                           />
                         </div>
 
@@ -1367,4 +1449,3 @@ function App() {
 }
 
 export default App
-
