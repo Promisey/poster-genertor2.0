@@ -34,9 +34,9 @@ function App() {
     storeName: '优选好物',
     storeSlogan: '品质保证·优惠价格',
     posterTitle: '', // 新增：海报标题
-    headerImage: null, // 新增：顶部宣传图片
+    headerImage: null, // 新增:顶部宣传图片
     bottomText: '长按识别二维码·立即购买',
-    qrCode: null,
+    qrCode: '/default-qrcode.png', // 默认二维码
     primaryColor: '#3B82F6',
     secondaryColor: '#60A5FA'
   })
@@ -385,6 +385,45 @@ function App() {
     }))
   }
 
+  // 日期格式化函数：将各种日期格式统一转换为"2025年9月"格式
+  const formatProductionDate = (rawDate) => {
+    if (!rawDate || rawDate === '') return '';
+
+    // 已经是目标格式，保持不变
+    if (typeof rawDate === 'string' && /^\d{4}年\d{1,2}月$/.test(rawDate.trim())) {
+      return rawDate.trim();
+    }
+
+    // 处理Excel日期序列号（可能是数字或字符串形式）
+    // 序列号通常在1到65000之间，1代表1900-01-01
+    const numValue = typeof rawDate === 'number' ? rawDate : parseFloat(rawDate);
+    if (!isNaN(numValue) && numValue > 0 && numValue < 65000) {
+      try {
+        // Excel日期序列号转换：1900-01-01为1，需要减去25569转换为Unix时间戳
+        const date = new Date((numValue - 25569) * 86400 * 1000);
+        if (!isNaN(date.getTime()) && date.getFullYear() > 1900 && date.getFullYear() < 2100) {
+          return `${date.getFullYear()}年${date.getMonth() + 1}月`;
+        }
+      } catch (e) {
+        // 转换失败，继续尝试其他方式
+      }
+    }
+
+    // 尝试解析标准日期格式（2025-09-15、2025/09/15等）
+    try {
+      const dateStr = String(rawDate).trim();
+      const dateObj = new Date(dateStr);
+      if (!isNaN(dateObj.getTime()) && dateObj.getFullYear() > 1900 && dateObj.getFullYear() < 2100) {
+        return `${dateObj.getFullYear()}年${dateObj.getMonth() + 1}月`;
+      }
+    } catch (e) {
+      // 解析失败
+    }
+
+    // 无法解析，保持原值（用户自定义的文本格式）
+    return String(rawDate).trim();
+  };
+
   const parseProductsFromTSV = (raw) => {
     const lines = raw.trim().split(/\r?\n/).filter(line => line.trim())
     if (lines.length < 2) {
@@ -426,7 +465,7 @@ function App() {
         id: i,
         title: cells[titleIdx],
         spec: specIdx >= 0 ? (cells[specIdx] || '') : '',
-        productionDate: dateIdx >= 0 ? (cells[dateIdx] || '') : '',
+        productionDate: dateIdx >= 0 ? formatProductionDate(cells[dateIdx]) : '',
         originalPrice: originalPriceIdx >= 0 ? (cells[originalPriceIdx] || '') : '',
         price: priceIdx >= 0 ? (cells[priceIdx] || '') : '',
         promotionTag: promotionIdx >= 0 ? (cells[promotionIdx] || '').trim() : '',
@@ -492,7 +531,43 @@ function App() {
     }
   }
 
-  // 异步绘制海报 - 修复下载按钮失效问题
+  // Excel模板下载功能
+  const downloadTemplate = () => {
+    try {
+      // 创建模板数据：标题行 + 2行示例数据
+      const templateData = [
+        ['商品标题', '商品规格', '生产日期', '划线价', '促销价', '促销标签', '商品图片链接'],
+        ['康师傅冰红茶', '500ml*15瓶', '2025年9月', '29.90', '19.90', '直降', 'https://example.com/product1.jpg'],
+        ['康师傅绿茶', '1L*12瓶', '2025年8月', '39.90', '38.90', '热销', '']
+      ];
+
+      // 创建工作簿
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(templateData);
+
+      // 设置列宽（可选，让模板更美观）
+      ws['!cols'] = [
+        { wch: 20 }, // 商品标题
+        { wch: 15 }, // 商品规格
+        { wch: 12 }, // 生产日期
+        { wch: 10 }, // 划线价
+        { wch: 10 }, // 促销价
+        { wch: 12 }, // 促销标签
+        { wch: 40 }  // 商品图片链接
+      ];
+
+      // 添加工作表到工作簿
+      XLSX.utils.book_append_sheet(wb, ws, '商品数据');
+
+      // 下载文件
+      XLSX.writeFile(wb, '海报商品导入模板.xlsx');
+    } catch (error) {
+      console.error('模板下载失败:', error);
+      alert('模板下载失败，请重试');
+    }
+  };
+
+  // 异步绘制海报 - 修复下载按钮失效问题 + 高清渲染
   const drawPoster = async () => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -502,9 +577,13 @@ function App() {
     const layout = calculateProductLayout(selectedTemplate)
     const style = styleTemplates[selectedStyle]
 
-    // 设置画布尺寸
-    canvas.width = layoutParams.posterWidth
-    canvas.height = layout.posterHeight
+    // 高清渲染：使用2倍分辨率
+    const SCALE = 2
+    canvas.width = layoutParams.posterWidth * SCALE
+    canvas.height = layout.posterHeight * SCALE
+
+    // 缩放绘图上下文
+    ctx.scale(SCALE, SCALE)
 
     // 清空画布
     ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -1219,12 +1298,12 @@ function App() {
                         <Upload className="w-4 h-4" />
                         上传二维码
                       </Button>
-                      {posterConfig.qrCode && (
+                      {posterConfig.qrCode && posterConfig.qrCode !== '/default-qrcode.png' && (
                         <Button
                           variant="outline"
-                          onClick={() => setPosterConfig(prev => ({ ...prev, qrCode: null }))}
+                          onClick={() => setPosterConfig(prev => ({ ...prev, qrCode: '/default-qrcode.png' }))}
                         >
-                          清除
+                          恢复默认
                         </Button>
                       )}
                     </div>
@@ -1246,6 +1325,13 @@ function App() {
                 <CardTitle className="flex items-center justify-between">
                   商品信息
                   <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={downloadTemplate}
+                    >
+                      下载模板
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
